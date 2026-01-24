@@ -82,12 +82,10 @@ export class HighlightService {
 		let content = await this.repo.getContentByContentId(bookmark.contentId);
 
 		if (content == null) {
-			content = await this.repo.getContentLikeContentId(
-				bookmark.contentId,
-			);
+			content = await this.repo.getContentLikeContentId(bookmark.contentId);
 			if (content == null) {
 				console.warn(
-					`bookmark seems to link to a non existing content: ${bookmark.contentId}`,
+					`Bookmark links to non-existent content: ${bookmark.contentId}`
 				);
 				return {
 					bookmark: bookmark,
@@ -151,7 +149,7 @@ export class HighlightService {
 
 		if (foundContent) {
 			console.warn(
-				`was not able to find chapterIdBookmarked for book ${originalContent.bookTitle}`,
+				`Could not find chapterIdBookmarked for book: ${originalContent.bookTitle}`
 			);
 		}
 
@@ -170,7 +168,7 @@ export class HighlightService {
 	}
 
 	async getAllContentByBookTitle(bookTitle: string): Promise<Content[]> {
-		return this.repo.getAllContentByBookTitle(bookTitle);
+		return await this.repo.getAllContentByBookTitle(bookTitle);
 	}
 
 	// Create an empty content map for books without highlights

@@ -7,25 +7,23 @@ export async function getTemplateContents(
 	app: App,
 	templatePath: string | undefined,
 ): Promise<string> {
-	const { metadataCache, vault } = app;
 	const normalizedTemplatePath = normalizePath(templatePath ?? "");
-	if (normalizedTemplatePath === "/") {
+	if (normalizedTemplatePath === "/" || !normalizedTemplatePath) {
 		return defaultTemplate;
 	}
 
 	try {
-		const templateFile = metadataCache.getFirstLinkpathDest(
+		const templateFile = app.metadataCache.getFirstLinkpathDest(
 			normalizedTemplatePath,
 			"",
 		);
-		return templateFile ? vault.cachedRead(templateFile) : defaultTemplate;
+		return templateFile ? app.vault.cachedRead(templateFile) : defaultTemplate;
 	} catch (err) {
 		console.error(
-			`Failed to read the kobo highlight exporter template '${normalizedTemplatePath}'`,
+			`Failed to read template '${normalizedTemplatePath}':`,
 			err,
 		);
-		new Notice("Failed to read the kobo highlight exporter template");
-
-		return "";
+		new Notice(`Failed to read template: ${normalizedTemplatePath}`);
+		return defaultTemplate;
 	}
 }

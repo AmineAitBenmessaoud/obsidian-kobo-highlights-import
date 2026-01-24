@@ -3,7 +3,7 @@ import { sanitize } from "sanitize-filename-ts";
 import SqlJs from "sql.js";
 import { binary } from "src/binaries/sql-wasm";
 import { HighlightService } from "src/database/Highlight";
-import { Bookmark } from "src/database/interfaces";
+import { BookDetails, Bookmark } from "src/database/interfaces";
 import { Repository } from "src/database/repository";
 import { KoboHighlightsImporterSettings } from "src/settings/Settings";
 import { applyTemplateTransformations } from "src/template/template";
@@ -52,10 +52,9 @@ export class ExtractHighlightsModal extends Modal {
 		}
 
 		if (this.settings.importAllBooks) {
-			// Add books without highlights
 			const allBooks = await service.getAllBooks();
 
-			for (const [bookTitle, _] of allBooks) {
+			for (const bookTitle of allBooks.keys()) {
 				if (!allBooksContent.has(bookTitle)) {
 					allBooksContent.set(
 						bookTitle,
@@ -87,11 +86,140 @@ export class ExtractHighlightsModal extends Modal {
 			const details =
 				await service.getBookDetailsFromBookTitle(bookTitle);
 
-			await this.app.vault.adapter.write(
-				fileName,
-				applyTemplateTransformations(template, chapters, details),
-			);
+			const fileExists = await this.app.vault.adapter.exists(fileName);
+
+			if (fileExists) {
+				await this.mergeHighlightsToExistingFile(
+					fileName,
+					chapters,
+					details,
+				);
+			} else {
+				await this.app.vault.adapter.write(
+					fileName,
+					applyTemplateTransformations(template, chapters, details),
+				);
+			}
 		}
+	}
+
+	private async mergeHighlightsToExistingFile(
+		fileName: string,
+		newChapters: Map<string, Bookmark[]>,
+		details: BookDetails,
+	) {
+		const existingContent = await this.app.vault.adapter.read(fileName);
+		const mergedContent = this.mergeHighlights(
+			existingContent,
+			newChapters,
+			details,
+		);
+		await this.app.vault.adapter.write(fileName, mergedContent);
+	}
+
+	private mergeHighlights(
+		existingContent: string,
+		newChapters: Map<string, Bookmark[]>,
+		_details: BookDetails,
+	): string {
+		const lines = existingContent.split("\n");
+		const result: string[] = [];
+		let inHighlightsSection = false;
+		let currentChapter = "";
+		const existingHighlights = new Map<string, Set<string>>();
+
+		// Parse existing content to extract highlights
+		for (let i = 0; i < lines.length; i++) {
+			const line = lines[i];
+
+			// Detect when we enter the Highlights section
+			if (line.match(/^##\s+Highlights\s*$/)) {
+				inHighlightsSection = true;
+				result.push(line);
+				continue;
+			}
+
+			// Detect chapter headers within highlights
+			if (inHighlightsSection && line.match(/^##\s+/)) {
+				currentChapter = line.replace(/^##\s+/, "").trim();
+				if (!existingHighlights.has(currentChapter)) {
+					existingHighlights.set(currentChapter, new Set());
+				}
+			}
+
+			// Store existing highlight text
+			if (
+				inHighlightsSection &&
+				currentChapter &&
+				line.trim() &&
+				!line.match(/^(##|#|\*Created:|\*\*Note:\*\*)/)
+			) {
+				existingHighlights.get(currentChapter)?.add(line.trim());
+			}
+
+			result.push(line);
+		}
+
+		// If no Highlights section exists, add it before adding new highlights
+		if (!inHighlightsSection) {
+			result.push("", "## Highlights", "");
+		}
+
+		// Add new highlights for each chapter
+		for (const [chapterName, highlights] of newChapters) {
+			const trimmedChapterName = chapterName.trim();
+			const chapterHighlights =
+				existingHighlights.get(trimmedChapterName) || new Set();
+
+			// Find or create chapter section
+			const chapterHeaderIndex = result.findIndex(
+				(line, idx) =>
+					idx > 0 &&
+					line.match(/^##\s+/) &&
+					line.replace(/^##\s+/, "").trim() === trimmedChapterName,
+			);
+
+			const newHighlightsToAdd: string[] = [];
+
+			for (const highlight of highlights) {
+				// Only add if this highlight text doesn't already exist
+				if (!chapterHighlights.has(highlight.text)) {
+					// Add highlight with type indicator based on color
+					if (highlight.color == 1) {
+						newHighlightsToAdd.push(`- [ ] **${highlight.text}** :: ... #card`);
+					} else {
+						newHighlightsToAdd.push(`> Quote : ${highlight.text}`);
+					}
+					newHighlightsToAdd.push("");
+					if (highlight.note) {
+						newHighlightsToAdd.push(`**Note:** ${highlight.note}`);
+						newHighlightsToAdd.push("");
+					}
+				}
+			}
+
+			// Add new highlights to chapter
+			if (newHighlightsToAdd.length > 0) {
+				if (chapterHeaderIndex !== -1) {
+					// Chapter exists, find where to insert new highlights
+					let insertIndex = chapterHeaderIndex + 1;
+					// Skip to the end of existing highlights in this chapter
+					while (
+						insertIndex < result.length &&
+						!result[insertIndex].match(/^##\s+/)
+					) {
+						insertIndex++;
+					}
+					result.splice(insertIndex, 0, ...newHighlightsToAdd);
+				} else {
+					// Chapter doesn't exist, add it at the end
+					result.push(`## ${trimmedChapterName}`, "");
+					result.push(...newHighlightsToAdd);
+				}
+			}
+		}
+
+		return result.join("\n");
 	}
 
 	onOpen() {
@@ -101,23 +229,20 @@ export class ExtractHighlightsModal extends Modal {
 		this.goButtonEl.textContent = "Extract";
 		this.goButtonEl.disabled = true;
 		this.goButtonEl.setAttr("style", "background-color: red; color: white");
-		this.goButtonEl.addEventListener("click", () => {
-			new Notice("Extracting highlights...");
-			this.fetchHighlights()
-				.then(() => {
-					new Notice(
-						"Extracted highlights from " +
-							this.nrOfBooksExtracted +
-							" books!",
-					);
-					this.close();
-				})
-				.catch((e) => {
-					console.log(e);
-					new Notice(
-						"Something went wrong... Check console for more details.",
-					);
-				});
+		this.goButtonEl.addEventListener("click", async () => {
+			try {
+				new Notice("Extracting highlights...");
+				await this.fetchHighlights();
+				new Notice(
+					`Extracted highlights from ${this.nrOfBooksExtracted} book${this.nrOfBooksExtracted !== 1 ? 's' : ''}!`,
+				);
+				this.close();
+			} catch (error) {
+				console.error("Error extracting highlights:", error);
+				new Notice(
+					`Failed to extract highlights: ${error instanceof Error ? error.message : 'Unknown error'}`,
+				);
+			}
 		});
 
 		this.inputFileEl = contentEl.createEl("input");
@@ -126,14 +251,12 @@ export class ExtractHighlightsModal extends Modal {
 		this.inputFileEl.addEventListener("change", (ev) => {
 			const file = (ev.target as HTMLInputElement)?.files?.[0];
 			if (!file) {
-				console.error("No file selected");
 				return;
 			}
 
-			// Convert File to ArrayBuffer
 			const reader = new FileReader();
 			reader.onload = () => {
-				this.fileBuffer = reader.result as ArrayBuffer; // Store the ArrayBuffer
+				this.fileBuffer = reader.result as ArrayBuffer;
 				this.goButtonEl.disabled = false;
 				this.goButtonEl.setAttr(
 					"style",
@@ -142,9 +265,9 @@ export class ExtractHighlightsModal extends Modal {
 				new Notice("Ready to extract!");
 			};
 
-			reader.onerror = (error) => {
-				console.error("FileReader error:", error);
-				new Notice("Error reading file");
+			reader.onerror = () => {
+				console.error("Failed to read file:", file.name);
+				new Notice("Failed to read file. Please try again.");
 			};
 
 			reader.readAsArrayBuffer(file);

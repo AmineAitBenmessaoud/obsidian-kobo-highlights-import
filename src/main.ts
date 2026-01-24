@@ -15,28 +15,17 @@ export default class KoboHighlightsImporter extends Plugin {
 		addIcon("e-reader", EREADER_ICON_PATH);
 		await this.loadSettings();
 
-		// This creates an icon in the left ribbon.
-		const KoboHighlightsImporterIconEl = this.addRibbonIcon(
-			"e-reader",
-			"Import from Kobo",
-			() => {
-				// Called when the user clicks the icon.
-				new ExtractHighlightsModal(this.app, this.settings).open();
-			},
-		);
-		// Perform additional things with the ribbon
-		KoboHighlightsImporterIconEl.addClass("kobo-highlights-importer-icon");
+		const openModal = () => new ExtractHighlightsModal(this.app, this.settings).open();
 
-		// This adds a simple command that can be triggered anywhere
+		this.addRibbonIcon("e-reader", "Import from Kobo", openModal)
+			.addClass("kobo-highlights-importer-icon");
+
 		this.addCommand({
 			id: "import-from-kobo-sqlite",
 			name: "Import from Kobo",
-			callback: () => {
-				new ExtractHighlightsModal(this.app, this.settings).open();
-			},
+			callback: openModal,
 		});
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
 		this.addSettingTab(
 			new KoboHighlightsImporterSettingsTab(this.app, this),
 		);

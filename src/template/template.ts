@@ -4,6 +4,8 @@ import { chapter } from "../database/Highlight";
 
 const eta = new Eta({ autoEscape: false, autoTrim: false });
 
+// Kobo color codes: 1 = vocabulary, other values = quotes
+
 export const defaultTemplate = `
 ---
 title: "<%= it.bookDetails.title %>"
@@ -30,14 +32,15 @@ timeSpentReading: <%= it.bookDetails.timeSpentReading ?? '' %>
 ## <%= chapterName.trim() %>
 
 <% highlights.forEach((highlight) => { -%>
-<%= highlight.text %>
+<% console.log('Template highlight:', highlight.text.substring(0, 20), 'color:', highlight.color, 'type:', typeof highlight.color); -%>
+<% if (highlight.color == 1) { -%>
+- [ ] **<%= highlight.text %>** :: ... #card
+<% } else { -%>
+> Quote : <%= highlight.text %>
+<% } -%>
 
 <% if (highlight.note) { -%>
 **Note:** <%= highlight.note %>
-
-<% } -%>
-<% if (highlight.dateCreated) { -%>
-*Created: <%= highlight.dateCreated.toISOString() %>*
 
 <% } -%>
 <% }) -%>

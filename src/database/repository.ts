@@ -12,11 +12,11 @@ export class Repository {
 		let res;
 		if (sortByChapterProgress) {
 			res = this.db.exec(
-				`select BookmarkID, Text, ContentID, annotation, DateCreated, ChapterProgress from Bookmark where Text is not null order by ChapterProgress ASC, DateCreated ASC;`,
+				`select BookmarkID, Text, ContentID, annotation, DateCreated, ChapterProgress, Color from Bookmark where Text is not null order by ChapterProgress ASC, DateCreated ASC;`,
 			);
 		} else {
 			res = this.db.exec(
-				`select BookmarkID, Text, ContentID, annotation, DateCreated, ChapterProgress from Bookmark where Text is not null order by DateCreated ASC;`,
+				`select BookmarkID, Text, ContentID, annotation, DateCreated, ChapterProgress, Color from Bookmark where Text is not null order by DateCreated ASC;`,
 			);
 		}
 		const bookmarks: Bookmark[] = [];
@@ -43,12 +43,15 @@ export class Repository {
 				return;
 			}
 
-			bookmarks.push({
-				bookmarkId: row[0].toString(),
-				text: row[1].toString().replace(/\s+/g, " ").trim(),
-				contentId: row[2].toString(),
-				note: row[3]?.toString(),
-				dateCreated: new Date(row[4].toString()),
+		const colorValue = row[6] != null ? +row[6].toString() : undefined;
+		console.log(`Bookmark text: ${row[1].toString().substring(0, 20)}, Color value: ${colorValue}, row[6]: ${row[6]}`);
+		bookmarks.push({
+			bookmarkId: row[0].toString(),
+			text: row[1].toString().replace(/\s+/g, " ").trim(),
+			contentId: row[2].toString(),
+			note: row[3]?.toString(),
+			dateCreated: new Date(row[4].toString()),
+			color: colorValue,
 			});
 		});
 
@@ -65,7 +68,7 @@ export class Repository {
 
 	async getBookmarkById(id: string): Promise<Bookmark | null> {
 		const statement = this.db.prepare(
-			`select BookmarkID, Text, ContentID, annotation, DateCreated from Bookmark where BookmarkID = $id;`,
+			`select BookmarkID, Text, ContentID, annotation, DateCreated, ChapterProgress, Color from Bookmark where BookmarkID = $id;`,
 			{
 				$id: id,
 			},
@@ -87,6 +90,7 @@ export class Repository {
 			contentId: row[2].toString(),
 			note: row[3]?.toString(),
 			dateCreated: new Date(row[4].toString()),
+			color: row[6] != null ? +row[6].toString() : undefined,
 		};
 	}
 

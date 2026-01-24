@@ -29,13 +29,13 @@ export class KoboHighlightsImporterSettingsTab extends PluginSettingTab {
 		this.containerEl.empty();
 		this.containerEl.createEl("h2", { text: this.plugin.manifest.name });
 
-		this.add_destination_folder();
-		this.add_template_path();
-		this.add_sort_by_chapter_progress();
-		this.add_import_all_books();
+		this.addDestinationFolder();
+		this.addTemplatePath();
+		this.addSortByChapterProgress();
+		this.addImportAllBooks();
 	}
 
-	add_destination_folder(): void {
+	private addDestinationFolder(): void {
 		new Setting(this.containerEl)
 			.setName("Destination folder")
 			.setDesc("Where to save your imported highlights")
@@ -43,14 +43,14 @@ export class KoboHighlightsImporterSettingsTab extends PluginSettingTab {
 				new FolderSuggestor(this.app, cb.inputEl);
 				cb.setPlaceholder("Example: folder1/folder2")
 					.setValue(this.plugin.settings.storageFolder)
-					.onChange((newFolder) => {
-						this.plugin.settings.storageFolder = newFolder;
-						this.plugin.saveSettings();
-					});
+				.onChange(async (newFolder) => {
+					this.plugin.settings.storageFolder = newFolder;
+					await this.plugin.saveSettings();
+				});
 			});
 	}
 
-	add_template_path(): void {
+	private addTemplatePath(): void {
 		new Setting(this.containerEl)
 			.setName("Template Path")
 			.setDesc("Which template to use for extracted highlights")
@@ -58,14 +58,14 @@ export class KoboHighlightsImporterSettingsTab extends PluginSettingTab {
 				new FileSuggestor(this.app, cb.inputEl);
 				cb.setPlaceholder("Example: folder1/template")
 					.setValue(this.plugin.settings.templatePath)
-					.onChange((newTemplatePath) => {
-						this.plugin.settings.templatePath = newTemplatePath;
-						this.plugin.saveSettings();
-					});
+				.onChange(async (newTemplatePath) => {
+					this.plugin.settings.templatePath = newTemplatePath;
+					await this.plugin.saveSettings();
+				});
 			});
 	}
 
-	add_sort_by_chapter_progress(): void {
+	private addSortByChapterProgress(): void {
 		const desc = document.createDocumentFragment();
 		desc.append(
 			"Turn on to sort highlights by chapter progess. If turned off, highlights are sorted by creation date and time.",
@@ -77,14 +77,14 @@ export class KoboHighlightsImporterSettingsTab extends PluginSettingTab {
 			.addToggle((cb) => {
 				cb.setValue(
 					this.plugin.settings.sortByChapterProgress,
-				).onChange((toggle) => {
+				).onChange(async (toggle) => {
 					this.plugin.settings.sortByChapterProgress = toggle;
-					this.plugin.saveSettings();
+					await this.plugin.saveSettings();
 				});
 			});
 	}
 
-	add_import_all_books(): void {
+	private addImportAllBooks(): void {
 		const desc = document.createDocumentFragment();
 		desc.append(
 			"When enabled, import information for all books from your Kobo device, not just books with highlights.",

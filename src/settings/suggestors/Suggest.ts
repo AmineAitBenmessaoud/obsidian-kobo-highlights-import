@@ -1,4 +1,3 @@
-/* eslint-disable no-unused-vars */
 // Credits go to Liam's Periodic Notes Plugin: https://github.com/liamcain/obsidian-periodic-notes
 
 import { createPopper, Instance as PopperInstance } from "@popperjs/core";
@@ -202,7 +201,7 @@ export abstract class TextInputSuggest<T> implements ISuggestOwner<T> {
 		this.suggestEl.detach();
 	}
 
-	abstract getSuggestions(inputStr: string): T[];
-	abstract renderSuggestion(item: T, el: HTMLElement): void;
-	abstract selectSuggestion(item: T): void;
+	abstract getSuggestions(_inputStr: string): T[];
+	abstract renderSuggestion(_item: T, _el: HTMLElement): void;
+	abstract selectSuggestion(_item: T): void;
 }
