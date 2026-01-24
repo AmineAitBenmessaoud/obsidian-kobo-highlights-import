@@ -8,6 +8,7 @@ export const DEFAULT_SETTINGS: KoboHighlightsImporterSettings = {
 	sortByChapterProgress: false,
 	templatePath: "",
 	importAllBooks: false,
+	ollamaModel: "",
 };
 
 export interface KoboHighlightsImporterSettings {
@@ -15,6 +16,7 @@ export interface KoboHighlightsImporterSettings {
 	sortByChapterProgress: boolean;
 	templatePath: string;
 	importAllBooks: boolean;
+	ollamaModel: string;
 }
 
 export class KoboHighlightsImporterSettingsTab extends PluginSettingTab {
@@ -33,6 +35,7 @@ export class KoboHighlightsImporterSettingsTab extends PluginSettingTab {
 		this.addTemplatePath();
 		this.addSortByChapterProgress();
 		this.addImportAllBooks();
+		this.addOllamaModel();
 	}
 
 	private addDestinationFolder(): void {
@@ -102,6 +105,19 @@ export class KoboHighlightsImporterSettingsTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					},
 				);
+			});
+	}
+	private addOllamaModel(): void {
+		new Setting(this.containerEl)
+			.setName("Ollama Model")
+			.setDesc("Name of the local Ollama model to use for vocabulary definitions (e.g., llama3.2, mistral, phi3). Make sure Ollama is running locally.")
+			.addText((cb) => {
+				cb.setPlaceholder("llama3.2")
+					.setValue(this.plugin.settings.ollamaModel)
+					.onChange(async (value) => {
+						this.plugin.settings.ollamaModel = value;
+						await this.plugin.saveSettings();
+					});
 			});
 	}
 }

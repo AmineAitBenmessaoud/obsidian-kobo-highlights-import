@@ -8,23 +8,10 @@ const eta = new Eta({ autoEscape: false, autoTrim: false });
 
 export const defaultTemplate = `
 ---
-title: "<%= it.bookDetails.title %>"
-author: <%= it.bookDetails.author %>
-publisher: <%= it.bookDetails.publisher ?? '' %>
-dateLastRead: <%= it.bookDetails.dateLastRead?.toISOString() ?? '' %>
-readStatus: <%= it.bookDetails.readStatus ? it.ReadStatus[it.bookDetails.readStatus] : it.ReadStatus[it.ReadStatus.Unknown] %>
-percentRead: <%= it.bookDetails.percentRead ?? '' %>
-isbn: <%= it.bookDetails.isbn ?? '' %>
-series: <%= it.bookDetails.series ?? '' %>
-seriesNumber: <%= it.bookDetails.seriesNumber ?? '' %>
-timeSpentReading: <%= it.bookDetails.timeSpentReading ?? '' %>
+cards-deck: <%= it.language === 'fr' ? 'Vocabulaire' : 'Vocabulary' %>
 ---
 
 # <%= it.bookDetails.title %>
-
-## Description
-
-<%= it.bookDetails.description ?? '' %>
 
 ## Highlights
 
@@ -34,7 +21,8 @@ timeSpentReading: <%= it.bookDetails.timeSpentReading ?? '' %>
 <% highlights.forEach((highlight) => { -%>
 <% console.log('Template highlight:', highlight.text.substring(0, 20), 'color:', highlight.color, 'type:', typeof highlight.color); -%>
 <% if (highlight.color == 1) { -%>
-- [ ] **<%= highlight.text %>** :: ... #card
+<% const definition = it.definitions.get(highlight.text) || '...'; -%>
+- <%= highlight.text %> ::: <%= definition %>
 <% } else { -%>
 > Quote : <%= highlight.text %>
 <% } -%>
@@ -51,12 +39,16 @@ export function applyTemplateTransformations(
 	rawTemplate: string,
 	chapters: Map<chapter, Bookmark[]>,
 	bookDetails: BookDetails,
+	definitions: Map<string, string>,
+	language: string = "en",
 ): string {
 	const chaptersArr = Array.from(chapters.entries());
 	const rendered = eta.renderString(rawTemplate, {
 		bookDetails,
 		chapters: chaptersArr,
 		ReadStatus,
+		definitions,
+		language,
 	});
 
 	if (rendered === null) {

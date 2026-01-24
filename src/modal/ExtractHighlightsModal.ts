@@ -6,6 +6,7 @@ import { HighlightService } from "src/database/Highlight";
 import { BookDetails, Bookmark } from "src/database/interfaces";
 import { Repository } from "src/database/repository";
 import { KoboHighlightsImporterSettings } from "src/settings/Settings";
+import { OllamaService } from "src/services/OllamaService";
 import { applyTemplateTransformations } from "src/template/template";
 import { getTemplateContents } from "src/template/templateContents";
 
@@ -72,34 +73,120 @@ export class ExtractHighlightsModal extends Modal {
 		service: HighlightService,
 		content: Map<string, Map<string, Bookmark[]>>,
 	) {
+		console.log(`\n========== PROCESSING ${content.size} BOOK(S) SEPARATELY ==========`);
+		for (const [bookTitle] of content) {
+			console.log(`📚 Book: ${bookTitle}`);
+		}
+		console.log(`==================================================\n`);
+
 		const template = await getTemplateContents(
 			this.app,
 			this.settings.templatePath,
 		);
 
+		// Initialize Ollama service
+		const ollamaService = new OllamaService(this.settings.ollamaModel);
+
+		// Process each book individually with its own language detection
 		for (const [bookTitle, chapters] of content) {
+			console.log(`\n📖 PROCESSING BOOK: "${bookTitle}"`);
+			
 			const sanitizedBookName = sanitize(bookTitle);
 			const fileName = normalizePath(
 				`${this.settings.storageFolder}/${sanitizedBookName}.md`,
 			);
 
-			const details =
-				await service.getBookDetailsFromBookTitle(bookTitle);
+			// Collect vocabulary words for THIS book only
+			const bookVocabularyWords: string[] = [];
+			for (const [, bookmarks] of chapters) {
+				for (const bookmark of bookmarks) {
+					if (bookmark.color == 1) {
+						bookVocabularyWords.push(bookmark.text);
+					}
+				}
+			}
+			console.log(`   📝 Found ${bookVocabularyWords.length} vocabulary words in this book`);
+			if (bookVocabularyWords.length > 0) {
+				console.log(`   Sample: ${bookVocabularyWords.slice(0, 5).join(', ')}${bookVocabularyWords.length > 5 ? '...' : ''}`);
+			}
 
+			// Parse existing definitions from THIS book's markdown file
+			const existingDefinitions = new Map<string, string>();
 			const fileExists = await this.app.vault.adapter.exists(fileName);
+			if (fileExists) {
+				const existingContent = await this.app.vault.adapter.read(fileName);
+				this.parseExistingDefinitions(existingContent, existingDefinitions);
+				console.log(`   ♻️  Reusing ${existingDefinitions.size} existing definitions`);
+			}
+
+			// Filter out words that already have definitions
+			const wordsNeedingDefinitions = bookVocabularyWords.filter(
+				word => !existingDefinitions.has(word)
+			);
+
+			// Detect language for THIS book only
+			let detectedLanguage = "en";
+			if (wordsNeedingDefinitions.length > 0) {
+				console.log(`   🔎 Detecting language from ${wordsNeedingDefinitions.length} new words...`);
+				detectedLanguage = OllamaService.detectLanguage(wordsNeedingDefinitions);
+				const langName = detectedLanguage === "fr" ? "French" : "English";
+				console.log(`   🎯 DETECTED: ${langName.toUpperCase()}`);
+			}
+
+			// Fetch definitions only for new words in THIS book
+			let definitions = new Map<string, string>(existingDefinitions);
+			if (this.settings.ollamaModel && wordsNeedingDefinitions.length > 0) {
+				const langName = detectedLanguage === "fr" ? "French" : "English";
+				console.log(`   🤖 Fetching ${wordsNeedingDefinitions.length} ${langName} definitions...`);
+				new Notice(
+					`Fetching ${langName} definitions for "${bookTitle}" (${wordsNeedingDefinitions.length} words)...`,
+				);
+				const newDefinitions = await ollamaService.getVocabularyDefinitions(
+					wordsNeedingDefinitions,
+					detectedLanguage,
+				);
+				// Merge new definitions with existing ones
+				for (const [word, definition] of newDefinitions) {
+					definitions.set(word, definition);
+				}
+			}
+
+			const details = await service.getBookDetailsFromBookTitle(bookTitle);
 
 			if (fileExists) {
+				console.log(`   💾 Merging to existing file with language: ${detectedLanguage}`);
 				await this.mergeHighlightsToExistingFile(
 					fileName,
 					chapters,
 					details,
+					definitions,
+					detectedLanguage,
 				);
 			} else {
+				console.log(`   💾 Creating new file with language: ${detectedLanguage}`);
+				const content = applyTemplateTransformations(template, chapters, details, definitions, detectedLanguage);
+				console.log(`   📋 Frontmatter check: ${content.substring(0, 100)}`);
 				await this.app.vault.adapter.write(
 					fileName,
-					applyTemplateTransformations(template, chapters, details),
+					content,
 				);
 			}
+			console.log(`   ✅ Completed: ${fileName}`);
+		}
+	}
+
+	private parseExistingDefinitions(
+		content: string,
+		definitions: Map<string, string>
+	): void {
+		// Match vocabulary format: - word ::: definition
+		const vocabularyRegex = /^-\s+(.+?)\s+:::\s+(.+)$/gm;
+		let match;
+		
+		while ((match = vocabularyRegex.exec(content)) !== null) {
+			const word = match[1].trim();
+			const definition = match[2].trim();
+			definitions.set(word, definition);
 		}
 	}
 
@@ -107,12 +194,16 @@ export class ExtractHighlightsModal extends Modal {
 		fileName: string,
 		newChapters: Map<string, Bookmark[]>,
 		details: BookDetails,
+		definitions: Map<string, string>,
+		language: string,
 	) {
 		const existingContent = await this.app.vault.adapter.read(fileName);
 		const mergedContent = this.mergeHighlights(
 			existingContent,
 			newChapters,
 			details,
+			definitions,
+			language,
 		);
 		await this.app.vault.adapter.write(fileName, mergedContent);
 	}
@@ -121,6 +212,8 @@ export class ExtractHighlightsModal extends Modal {
 		existingContent: string,
 		newChapters: Map<string, Bookmark[]>,
 		_details: BookDetails,
+		definitions: Map<string, string>,
+		_language: string,
 	): string {
 		const lines = existingContent.split("\n");
 		const result: string[] = [];
@@ -186,7 +279,8 @@ export class ExtractHighlightsModal extends Modal {
 				if (!chapterHighlights.has(highlight.text)) {
 					// Add highlight with type indicator based on color
 					if (highlight.color == 1) {
-						newHighlightsToAdd.push(`- [ ] **${highlight.text}** :: ... #card`);
+						const definition = definitions.get(highlight.text) || "...";
+						newHighlightsToAdd.push(`- [ ] **${highlight.text}** :: ${definition} #card`);
 					} else {
 						newHighlightsToAdd.push(`> Quote : ${highlight.text}`);
 					}
