@@ -1,14 +1,23 @@
-# Obsidian Kobo Highlight Importer
+# My Kobo Automaton
 
-This plugin aims to make highlight import from Kobo devices easier.
+Automated Kobo highlights importer with AI-powered vocabulary definitions and bilingual support (English/French).
 
-- [Obsidian Kobo Highlight Importer](#obsidian-kobo-highlight-importer)
+## Features
+
+- 🤖 AI-powered vocabulary definitions using local Ollama
+- 🌍 Automatic language detection (French/English)
+- 📚 Separate processing per book
+- ⚡ Parallel processing for maximum speed
+- 💾 Definition caching to avoid regeneration
+- 📝 Flashcard-ready format (word ::: definition)
+
+- [My Kobo Automaton](#my-kobo-automaton)
+    - [Features](#features)
     - [How to use](#how-to-use)
     - [Templating](#templating)
         - [Variables](#variables)
         - [Template Syntax](#template-syntax)
     - [Helping Screenshots](#helping-screenshots)
-    - [Contributing](#contributing)
 
 ## How to use
 

@@ -96,18 +96,24 @@ export class ExtractHighlightsModal extends Modal {
 				`${this.settings.storageFolder}/${sanitizedBookName}.md`,
 			);
 
-			// Collect vocabulary words for THIS book only
+			// Collect all highlights for THIS book, split by type
 			const bookVocabularyWords: string[] = [];
-			for (const [, bookmarks] of chapters) {
+			let totalHighlights = 0;
+			let quoteCount = 0;
+			for (const [chapterName, bookmarks] of chapters) {
+				console.log(`   📂 Chapter "${chapterName.trim()}": ${bookmarks.length} highlight(s)`);
 				for (const bookmark of bookmarks) {
+					totalHighlights++;
 					if (bookmark.color == 1) {
 						bookVocabularyWords.push(bookmark.text);
+					} else {
+						quoteCount++;
 					}
 				}
 			}
-			console.log(`   📝 Found ${bookVocabularyWords.length} vocabulary words in this book`);
+			console.log(`   📝 Total highlights from DB: ${totalHighlights} (${bookVocabularyWords.length} vocab, ${quoteCount} quotes)`);
 			if (bookVocabularyWords.length > 0) {
-				console.log(`   Sample: ${bookVocabularyWords.slice(0, 5).join(', ')}${bookVocabularyWords.length > 5 ? '...' : ''}`);
+				console.log(`   Vocabulary: ${bookVocabularyWords.join(', ')}`);
 			}
 
 			// Parse existing definitions from THIS book's markdown file
@@ -124,13 +130,19 @@ export class ExtractHighlightsModal extends Modal {
 				word => !existingDefinitions.has(word)
 			);
 
-			// Detect language for THIS book only
+			// Detect language for THIS book using ALL vocabulary words (not just new ones),
+			// so language is correctly detected even when all definitions are cached.
 			let detectedLanguage = "en";
-			if (wordsNeedingDefinitions.length > 0) {
-				console.log(`   🔎 Detecting language from ${wordsNeedingDefinitions.length} new words...`);
-				detectedLanguage = OllamaService.detectLanguage(wordsNeedingDefinitions);
+			if (bookVocabularyWords.length > 0) {
+				console.log(`   🔎 Detecting language from ${bookVocabularyWords.length} vocabulary words...`);
+				detectedLanguage = OllamaService.detectLanguage(bookVocabularyWords);
 				const langName = detectedLanguage === "fr" ? "French" : "English";
 				console.log(`   🎯 DETECTED: ${langName.toUpperCase()}`);
+			}
+			if (wordsNeedingDefinitions.length > 0) {
+				console.log(`   🆕 New words needing definitions: ${wordsNeedingDefinitions.join(', ')}`);
+			} else {
+				console.log(`   ✅ All ${bookVocabularyWords.length} definitions already cached`);
 			}
 
 			// Fetch definitions only for new words in THIS book
@@ -153,24 +165,29 @@ export class ExtractHighlightsModal extends Modal {
 
 			const details = await service.getBookDetailsFromBookTitle(bookTitle);
 
+			// Always (re)generate the file from the template.
+			// `chapters` contains ALL highlights from the database and
+			// `definitions` contains both previously-cached and newly-fetched
+			// definitions, so the output is always complete and consistent.
+			console.log(`   💾 ${fileExists ? 'Regenerating' : 'Creating'} file with language: ${detectedLanguage}`);
+			const generatedContent = applyTemplateTransformations(template, chapters, details, definitions, detectedLanguage);
+			console.log(`   📋 Frontmatter check: ${generatedContent.substring(0, 100)}`);
+
+			let finalContent = generatedContent;
 			if (fileExists) {
-				console.log(`   💾 Merging to existing file with language: ${detectedLanguage}`);
-				await this.mergeHighlightsToExistingFile(
-					fileName,
-					chapters,
-					details,
-					definitions,
-					detectedLanguage,
-				);
-			} else {
-				console.log(`   💾 Creating new file with language: ${detectedLanguage}`);
-				const content = applyTemplateTransformations(template, chapters, details, definitions, detectedLanguage);
-				console.log(`   📋 Frontmatter check: ${content.substring(0, 100)}`);
-				await this.app.vault.adapter.write(
-					fileName,
-					content,
-				);
+				const existingContent = await this.app.vault.adapter.read(fileName);
+				const userContent = this.extractUserContent(existingContent);
+				if (userContent.size > 0 || userContent.has('__trailing__')) {
+					finalContent = this.reinsertUserContent(generatedContent, userContent);
+					const preservedChapters = [...userContent.keys()].filter(k => k !== '__trailing__');
+					console.log(`   📌 Preserved user content in ${preservedChapters.length} chapter(s)`);
+				}
 			}
+
+			await this.app.vault.adapter.write(
+				fileName,
+				finalContent,
+			);
 			console.log(`   ✅ Completed: ${fileName}`);
 		}
 	}
@@ -190,131 +207,109 @@ export class ExtractHighlightsModal extends Modal {
 		}
 	}
 
-	private async mergeHighlightsToExistingFile(
-		fileName: string,
-		newChapters: Map<string, Bookmark[]>,
-		details: BookDetails,
-		definitions: Map<string, string>,
-		language: string,
-	) {
-		const existingContent = await this.app.vault.adapter.read(fileName);
-		const mergedContent = this.mergeHighlights(
-			existingContent,
-			newChapters,
-			details,
-			definitions,
-			language,
-		);
-		await this.app.vault.adapter.write(fileName, mergedContent);
-	}
+	/**
+	 * Extracts user-added content from an existing markdown file.
+	 * User content is anything between `%% kobo-highlights-end %%` and the next
+	 * `## ` chapter header (or end of file). Returns a Map keyed by chapter name.
+	 * Trailing content after the last chapter is stored under '__trailing__'.
+	 */
+	private extractUserContent(existingContent: string): Map<string, string> {
+		const userContent = new Map<string, string>();
+		const lines = existingContent.split('\n');
 
-	private mergeHighlights(
-		existingContent: string,
-		newChapters: Map<string, Bookmark[]>,
-		_details: BookDetails,
-		definitions: Map<string, string>,
-		_language: string,
-	): string {
-		const lines = existingContent.split("\n");
-		const result: string[] = [];
-		let inHighlightsSection = false;
-		let currentChapter = "";
-		const existingHighlights = new Map<string, Set<string>>();
+		let currentChapter = '';
+		let afterAutoEnd = false;
+		let userLines: string[] = [];
 
-		// Parse existing content to extract highlights
-		for (let i = 0; i < lines.length; i++) {
-			const line = lines[i];
-
-			// Detect when we enter the Highlights section
-			if (line.match(/^##\s+Highlights\s*$/)) {
-				inHighlightsSection = true;
-				result.push(line);
+		for (const line of lines) {
+			// Detect chapter headers
+			if (line.match(/^##\s+/)) {
+				// Save accumulated user content for previous chapter
+				if (currentChapter && userLines.length > 0) {
+					const trimmed = userLines.join('\n').trim();
+					if (trimmed) {
+						userContent.set(currentChapter, trimmed);
+					}
+				}
+				currentChapter = line.replace(/^##\s+/, '').trim();
+				userLines = [];
+				afterAutoEnd = false;
 				continue;
 			}
 
-			// Detect chapter headers within highlights
-			if (inHighlightsSection && line.match(/^##\s+/)) {
-				currentChapter = line.replace(/^##\s+/, "").trim();
-				if (!existingHighlights.has(currentChapter)) {
-					existingHighlights.set(currentChapter, new Set());
-				}
+			// Detect end-of-auto marker
+			if (line.includes('kobo-highlights-end')) {
+				afterAutoEnd = true;
+				continue;
 			}
 
-			// Store existing highlight text
-			if (
-				inHighlightsSection &&
-				currentChapter &&
-				line.trim() &&
-				!line.match(/^(##|#|\*Created:|\*\*Note:\*\*)/)
-			) {
-				existingHighlights.get(currentChapter)?.add(line.trim());
+			// Detect start-of-auto marker (stop collecting user content)
+			if (line.includes('kobo-highlights-start')) {
+				afterAutoEnd = false;
+				continue;
+			}
+
+			// Collect user content (lines after the auto end marker)
+			if (afterAutoEnd && currentChapter) {
+				userLines.push(line);
+			}
+		}
+
+		// Save last chapter's user content (or trailing content)
+		if (userLines.length > 0) {
+			const trimmed = userLines.join('\n').trim();
+			if (trimmed) {
+				if (currentChapter) {
+					userContent.set(currentChapter, trimmed);
+				} else {
+					userContent.set('__trailing__', trimmed);
+				}
+			}
+		}
+
+		return userContent;
+	}
+
+	/**
+	 * Re-inserts preserved user content into newly generated content.
+	 * For each chapter, user content is placed after `%% kobo-highlights-end %%`.
+	 */
+	private reinsertUserContent(
+		generatedContent: string,
+		userContent: Map<string, string>,
+	): string {
+		const lines = generatedContent.split('\n');
+		const result: string[] = [];
+		let currentChapter = '';
+
+		for (const line of lines) {
+			if (line.match(/^##\s+/)) {
+				currentChapter = line.replace(/^##\s+/, '').trim();
 			}
 
 			result.push(line);
-		}
 
-		// If no Highlights section exists, add it before adding new highlights
-		if (!inHighlightsSection) {
-			result.push("", "## Highlights", "");
-		}
-
-		// Add new highlights for each chapter
-		for (const [chapterName, highlights] of newChapters) {
-			const trimmedChapterName = chapterName.trim();
-			const chapterHighlights =
-				existingHighlights.get(trimmedChapterName) || new Set();
-
-			// Find or create chapter section
-			const chapterHeaderIndex = result.findIndex(
-				(line, idx) =>
-					idx > 0 &&
-					line.match(/^##\s+/) &&
-					line.replace(/^##\s+/, "").trim() === trimmedChapterName,
-			);
-
-			const newHighlightsToAdd: string[] = [];
-
-			for (const highlight of highlights) {
-				// Only add if this highlight text doesn't already exist
-				if (!chapterHighlights.has(highlight.text)) {
-					// Add highlight with type indicator based on color
-					if (highlight.color == 1) {
-						const definition = definitions.get(highlight.text) || "...";
-						newHighlightsToAdd.push(`- [ ] **${highlight.text}** :: ${definition} #card`);
-					} else {
-						newHighlightsToAdd.push(`> Quote : ${highlight.text}`);
-					}
-					newHighlightsToAdd.push("");
-					if (highlight.note) {
-						newHighlightsToAdd.push(`**Note:** ${highlight.note}`);
-						newHighlightsToAdd.push("");
-					}
-				}
-			}
-
-			// Add new highlights to chapter
-			if (newHighlightsToAdd.length > 0) {
-				if (chapterHeaderIndex !== -1) {
-					// Chapter exists, find where to insert new highlights
-					let insertIndex = chapterHeaderIndex + 1;
-					// Skip to the end of existing highlights in this chapter
-					while (
-						insertIndex < result.length &&
-						!result[insertIndex].match(/^##\s+/)
-					) {
-						insertIndex++;
-					}
-					result.splice(insertIndex, 0, ...newHighlightsToAdd);
-				} else {
-					// Chapter doesn't exist, add it at the end
-					result.push(`## ${trimmedChapterName}`, "");
-					result.push(...newHighlightsToAdd);
+			// After each chapter's auto-end marker, insert preserved user content
+			if (line.includes('kobo-highlights-end') && currentChapter) {
+				const preserved = userContent.get(currentChapter);
+				if (preserved) {
+					result.push('');
+					result.push(preserved);
 				}
 			}
 		}
 
-		return result.join("\n");
+		// Append trailing user content (content not belonging to any chapter)
+		const trailing = userContent.get('__trailing__');
+		if (trailing) {
+			result.push('');
+			result.push(trailing);
+		}
+
+		return result.join('\n');
 	}
+
+
 
 	onOpen() {
 		const { contentEl } = this;

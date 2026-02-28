@@ -1,8 +1,8 @@
 {
-	"name": "obsidian-kobo-highlights-importer-plugin",
-	"version": "4.1.0",
+	"name": "my-kobo-automaton",
+	"version": "0.1.0",
 	"type": "module",
-	"description": "Import highlights from your Kobo device",
+	"description": "Automated Kobo highlights importer with AI-powered vocabulary definitions and bilingual support",
 	"main": "src/main.js",
 	"scripts": {
 		"lint": "eslint . --ext .ts",
@@ -12,8 +12,8 @@
 		"test": "NODE_OPTIONS='--loader ts-node/esm --experimental-specifier-resolution=node' mocha 'src/**/*.test.ts'",
 		"coverage": "nyc -r lcov -e .ts -x \"*.test.ts\" npm run test"
 	},
-	"keywords": [],
-	"author": "",
+	"keywords": ["obsidian", "kobo", "highlights", "vocabulary", "flashcards", "ai", "ollama"],
+	"author": "Amine",
 	"license": "MIT",
 	"devDependencies": {
 		"@eslint/eslintrc": "^3.3.1",

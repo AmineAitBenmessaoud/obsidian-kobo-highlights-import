@@ -1,10 +1,10 @@
 {
-	"id": "obsidian-kobo-highlights-importer-plugin",
-	"name": "Kobo Highlights Importer",
-	"version": "4.1.0",
+	"id": "my-kobo-automaton",
+	"name": "My Kobo Automaton",
+	"version": "0.1.0",
 	"minAppVersion": "0.15.9",
-	"description": "Import highlights from your Kobo device",
-	"author": "Kevin Hellemun",
-	"authorUrl": "https://github.com/OGKevin",
+	"description": "Automated Kobo highlights importer with AI-powered vocabulary definitions and bilingual support",
+	"author": "Amine",
+	"authorUrl": "",
 	"isDesktopOnly": true
 }

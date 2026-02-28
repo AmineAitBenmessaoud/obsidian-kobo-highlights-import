@@ -11,13 +11,10 @@ export const defaultTemplate = `
 cards-deck: <%= it.language === 'fr' ? 'Vocabulaire' : 'Vocabulary' %>
 ---
 
-# <%= it.bookDetails.title %>
-
-## Highlights
-
 <% it.chapters.forEach(([chapterName, highlights]) => { -%>
 ## <%= chapterName.trim() %>
 
+%% kobo-highlights-start %%
 <% highlights.forEach((highlight) => { -%>
 <% console.log('Template highlight:', highlight.text.substring(0, 20), 'color:', highlight.color, 'type:', typeof highlight.color); -%>
 <% if (highlight.color == 1) { -%>
@@ -32,6 +29,8 @@ cards-deck: <%= it.language === 'fr' ? 'Vocabulaire' : 'Vocabulary' %>
 
 <% } -%>
 <% }) -%>
+%% kobo-highlights-end %%
+
 <% }) %>
 `;
 
